@@ -1,77 +1,66 @@
-import sqlite3
-from datetime import datetime
-
-DB_NAME = "frota.db"
+import streamlit as st
+from supabase import create_client
 
 
-def conectar():
-    return sqlite3.connect(DB_NAME, check_same_thread=False)
+def _get_secret(name: str):
+    return st.secrets[name]
+
+
+@st.cache_resource
+def get_supabase():
+    return create_client(
+        _get_secret("SUPABASE_URL"),
+        _get_secret("SUPABASE_KEY")
+    )
 
 
 def criar_tabelas():
-
-    conn = conectar()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS veiculos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nome TEXT NOT NULL,
-            placa TEXT UNIQUE,
-            tipo TEXT,
-            responsavel TEXT,
-            status TEXT DEFAULT 'Ativo'
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS localizacoes (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            veiculo_id INTEGER NOT NULL,
-            latitude REAL NOT NULL,
-            longitude REAL NOT NULL,
-            velocidade REAL DEFAULT 0,
-            bateria REAL DEFAULT 100,
-            data_hora TEXT NOT NULL,
-            FOREIGN KEY (veiculo_id) REFERENCES veiculos(id)
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+    """As tabelas são gerenciadas no Supabase."""
+    return True
 
 
 def cadastrar_veiculo(nome, placa, tipo, responsavel):
+    supabase = get_supabase()
 
-    conn = conectar()
-    cursor = conn.cursor()
+    dados = {
+        "nome": nome.strip(),
+        "placa": placa.upper().strip(),
+        "tipo": tipo,
+        "responsavel": responsavel.strip() if responsavel else None
+    }
 
-    cursor.execute("""
-        INSERT INTO veiculos
-        (nome, placa, tipo, responsavel)
-        VALUES (?, ?, ?, ?)
-    """, (nome, placa.upper().strip(), tipo, responsavel))
-
-    conn.commit()
-    conn.close()
+    return (
+        supabase
+        .table("veiculos")
+        .insert(dados)
+        .execute()
+    )
 
 
 def listar_veiculos():
+    supabase = get_supabase()
 
-    conn = conectar()
-    cursor = conn.cursor()
+    resposta = (
+        supabase
+        .table("veiculos")
+        .select("id, nome, placa, tipo, responsavel")
+        .order("nome")
+        .execute()
+    )
 
-    cursor.execute("""
-        SELECT id, nome, placa, tipo, responsavel, status
-        FROM veiculos
-        ORDER BY nome
-    """)
+    dados = resposta.data or []
 
-    dados = cursor.fetchall()
-
-    conn.close()
-
-    return dados
+    return [
+        (
+            item["id"],
+            item.get("nome"),
+            item.get("placa"),
+            item.get("tipo"),
+            item.get("responsavel"),
+            item.get("status", "Ativo")
+        )
+        for item in dados
+    ]
 
 
 def salvar_localizacao(
@@ -81,54 +70,50 @@ def salvar_localizacao(
     velocidade=0,
     bateria=100
 ):
+    supabase = get_supabase()
 
-    conn = conectar()
-    cursor = conn.cursor()
+    dados = {
+        "veiculo_id": int(veiculo_id),
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "velocidade": float(velocidade or 0),
+        "bateria": float(bateria) if bateria is not None else None
+    }
 
-    cursor.execute("""
-        INSERT INTO localizacoes
-        (
-            veiculo_id,
-            latitude,
-            longitude,
-            velocidade,
-            bateria,
-            data_hora
-        )
-        VALUES (?, ?, ?, ?, ?, ?)
-    """, (
-        veiculo_id,
-        latitude,
-        longitude,
-        velocidade,
-        bateria,
-        datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    ))
-
-    conn.commit()
-    conn.close()
+    return (
+        supabase
+        .table("localizacoes")
+        .insert(dados)
+        .execute()
+    )
 
 
 def ultima_localizacao(veiculo_id):
+    supabase = get_supabase()
 
-    conn = conectar()
-    cursor = conn.cursor()
+    resposta = (
+        supabase
+        .table("localizacoes")
+        .select(
+            "latitude, longitude, velocidade, bateria, created_at"
+        )
+        .eq("veiculo_id", int(veiculo_id))
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
 
-    cursor.execute("""
-        SELECT
-            latitude,
-            longitude,
-            velocidade,
-            bateria,
-            data_hora
-        FROM localizacoes
-        WHERE veiculo_id = ?
-        ORDER BY id DESC
-        LIMIT 1
-    """, (veiculo_id,))
+    dados = resposta.data or []
 
-    dado = cursor.fetchone()
+    if not dados:
+        return None
 
-    conn.close()
+    item = dados[0]
 
-    return dado
+    return (
+        item.get("latitude"),
+        item.get("longitude"),
+        item.get("velocidade", 0),
+        item.get("bateria"),
+        item.get("created_at")
+    )
