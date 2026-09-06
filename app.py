@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import folium
-
 from streamlit_folium import st_folium
 
 from database import (
@@ -59,7 +58,6 @@ if pagina == "📊 Dashboard":
     col2.metric("📍 Com localização", localizados)
     col3.metric("📡 Sem localização", total - localizados)
 
-
     if veiculos:
 
         mapa = folium.Map(
@@ -79,11 +77,15 @@ if pagina == "📊 Dashboard":
 
                 latitude, longitude, velocidade, bateria, data_hora = localizacao
 
+                bateria_texto = (
+                    f"{bateria}%" if bateria is not None else "Não informada"
+                )
+
                 popup = f"""
                 <b>{veiculo[1]}</b><br>
                 Placa: {veiculo[2]}<br>
                 Velocidade: {velocidade} km/h<br>
-                Bateria: {bateria}%<br>
+                Bateria: {bateria_texto}<br>
                 Atualização: {data_hora}
                 """
 
@@ -93,13 +95,13 @@ if pagina == "📊 Dashboard":
                     tooltip=veiculo[1]
                 ).add_to(mapa)
 
-
         if encontrou_localizacao:
 
             st_folium(
                 mapa,
                 width=None,
-                height=600
+                height=600,
+                key="mapa_frota"
             )
 
         else:
@@ -276,14 +278,20 @@ elif pagina == "📍 Atualizar Localização":
 
             if atualizar:
 
-                salvar_localizacao(
-                    veiculo_id,
-                    latitude,
-                    longitude,
-                    velocidade,
-                    bateria
-                )
+                try:
+                    salvar_localizacao(
+                        veiculo_id,
+                        latitude,
+                        longitude,
+                        velocidade,
+                        bateria
+                    )
 
-                st.success(
-                    "Localização atualizada!"
-                )
+                    st.success(
+                        "Localização atualizada no Supabase!"
+                    )
+
+                except Exception as erro:
+                    st.error(
+                        f"Erro ao salvar localização: {erro}"
+                    )
