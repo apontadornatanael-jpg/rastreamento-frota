@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import time
 import folium
 from streamlit_folium import st_folium
 
@@ -214,15 +215,16 @@ elif pagina == "🚗 Veículos":
 
 
 # =========================================================
-# LOCALIZAÇÃO
+# LOCALIZAÇÃO / RASTREAMENTO AUTOMÁTICO
 # =========================================================
 
 elif pagina == "📍 Atualizar Localização":
 
-    st.subheader("📍 Localização automática do aparelho")
+    st.subheader("📡 Rastreamento automático")
     st.caption(
-        "O sistema solicita a localização GPS do celular/tablet. "
-        "Permita o acesso à localização quando o navegador solicitar."
+        "O celular/tablet captura a localização pelo GPS do navegador "
+        "e envia automaticamente para o Supabase enquanto esta página "
+        "estiver aberta."
     )
 
     veiculos = listar_veiculos()
@@ -238,13 +240,52 @@ elif pagina == "📍 Atualizar Localização":
         )
         veiculo_id = opcoes[veiculo_nome]
 
+        st.markdown("### ⚙️ Rastreamento")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            intervalo = st.number_input(
+                "Intervalo de atualização (segundos)",
+                min_value=5,
+                max_value=300,
+                value=15,
+                step=5
+            )
+
+        with col2:
+            velocidade = st.number_input(
+                "Velocidade (km/h)",
+                min_value=0.0,
+                value=0.0,
+                step=1.0
+            )
+
+        bateria = st.number_input(
+            "Bateria (%) — opcional",
+            min_value=0.0,
+            max_value=100.0,
+            value=100.0,
+            step=1.0
+        )
+
+        rastreando = st.toggle(
+            "🟢 Ativar rastreamento automático",
+            value=st.session_state.get("rastreando", False)
+        )
+        st.session_state["rastreando"] = rastreando
+
         if streamlit_geolocation is None:
             st.error(
                 "O componente de GPS não está instalado. "
-                "Adicione streamlit-geolocation ao requirements.txt e faça novo deploy."
+                "Adicione streamlit-geolocation ao requirements.txt."
             )
-        else:
-            st.markdown("### 📡 GPS do dispositivo")
+        elif rastreando:
+            st.info(
+                f"📡 Rastreamento ativo para **{veiculo_nome}**. "
+                f"Nova posição a cada **{intervalo} segundos**."
+            )
+
             localizacao = streamlit_geolocation()
 
             if isinstance(localizacao, dict) and localizacao.get("error"):
@@ -264,40 +305,36 @@ elif pagina == "📍 Atualizar Localização":
                 if lat is not None and lon is not None:
                     lat = float(lat)
                     lon = float(lon)
-                    accuracy = float(accuracy) if accuracy is not None else None
+                    accuracy = (
+                        float(accuracy)
+                        if accuracy is not None
+                        else None
+                    )
 
-                    st.success("📍 Localização GPS capturada automaticamente!")
+                    st.success("📍 GPS capturado.")
 
                     c1, c2, c3 = st.columns(3)
                     c1.metric("Latitude", f"{lat:.7f}")
                     c2.metric("Longitude", f"{lon:.7f}")
                     c3.metric(
                         "Precisão",
-                        f"±{accuracy:.1f} m" if accuracy is not None else "Não informada"
+                        f"±{accuracy:.1f} m"
+                        if accuracy is not None
+                        else "Não informada"
                     )
 
-                    if accuracy is not None and accuracy > 50:
-                        st.warning(
-                            f"⚠️ A precisão atual é de aproximadamente ±{accuracy:.1f} m. "
-                            "Se possível, fique alguns segundos parado e tente novamente."
-                        )
-
-                    velocidade = st.number_input(
-                        "Velocidade (km/h)",
-                        min_value=0.0,
-                        value=0.0,
-                        step=1.0
+                    # Evita gravar a mesma posição repetidamente.
+                    ultima_enviada = st.session_state.get(
+                        "ultima_posicao_rastreamento"
                     )
 
-                    bateria = st.number_input(
-                        "Bateria (%) — opcional",
-                        min_value=0.0,
-                        max_value=100.0,
-                        value=100.0,
-                        step=1.0
+                    posicao_atual = (
+                        veiculo_id,
+                        round(lat, 6),
+                        round(lon, 6)
                     )
 
-                    if st.button("📍 Salvar minha localização", type="primary"):
+                    if posicao_atual != ultima_enviada:
                         try:
                             salvar_localizacao(
                                 veiculo_id,
@@ -306,24 +343,57 @@ elif pagina == "📍 Atualizar Localização":
                                 velocidade,
                                 bateria
                             )
-                            st.session_state["ultima_posicao_salva"] = (
-                                veiculo_id, lat, lon
-                            )
-                            st.success(
-                                f"✅ Localização do veículo {veiculo_nome} salva no Supabase!"
-                            )
-                            st.rerun()
-                        except Exception as erro:
-                            st.error(f"Erro ao salvar localização: {erro}")
 
-                    maps_url = f"https://www.google.com/maps?q={lat:.7f},{lon:.7f}"
-                    st.link_button("🌎 Conferir posição no Google Maps", maps_url)
+                            st.session_state[
+                                "ultima_posicao_rastreamento"
+                            ] = posicao_atual
+
+                            st.session_state[
+                                "ultima_atualizacao_rastreamento"
+                            ] = time.strftime("%d/%m/%Y %H:%M:%S")
+
+                            st.success(
+                                "✅ Posição enviada para o Supabase."
+                            )
+
+                        except Exception as erro:
+                            st.error(
+                                f"Erro ao enviar localização: {erro}"
+                            )
+
+                    ultima_atualizacao = st.session_state.get(
+                        "ultima_atualizacao_rastreamento"
+                    )
+
+                    if ultima_atualizacao:
+                        st.caption(
+                            f"Último envio: {ultima_atualizacao}"
+                        )
+
+                    st.link_button(
+                        "🌎 Conferir posição no Google Maps",
+                        f"https://www.google.com/maps?q={lat:.7f},{lon:.7f}"
+                    )
+
+                    # Faz o Streamlit executar novamente depois do intervalo.
+                    time.sleep(int(intervalo))
+                    st.rerun()
+
                 else:
-                    st.info(
-                        "Aguardando o GPS do aparelho. Verifique se a localização está ativada."
+                    st.warning(
+                        "Aguardando coordenadas do GPS. "
+                        "Verifique se a localização está ativada "
+                        "e permita o acesso no navegador."
                     )
             else:
                 st.info(
-                    "Aguardando a localização do aparelho. Permita o acesso ao GPS no navegador."
+                    "Aguardando a localização do aparelho. "
+                    "Permita o acesso ao GPS no navegador."
                 )
+
+        else:
+            st.warning(
+                "⏸️ Rastreamento desativado. "
+                "Ative o rastreamento acima para começar."
+            )
 
