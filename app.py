@@ -47,61 +47,154 @@ pagina = st.sidebar.radio(
 
 if pagina == "📊 Dashboard":
 
-    st.subheader("📊 Visão geral da frota")
+    st.subheader("📊 Acompanhamento da Frota")
 
     veiculos = listar_veiculos()
-
     total = len(veiculos)
 
-    localizados = sum(
-        1 for veiculo in veiculos
-        if ultima_localizacao(veiculo[0])
+    dados_frota = []
+    for veiculo in veiculos:
+        loc = ultima_localizacao(veiculo[0])
+        dados_frota.append((veiculo, loc))
+
+    localizados = sum(1 for _, loc in dados_frota if loc)
+
+    from datetime import datetime, timezone
+
+    def esta_online(data_hora):
+        if not data_hora:
+            return False
+        try:
+            dt = datetime.fromisoformat(str(data_hora).replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            agora = datetime.now(timezone.utc)
+            return (agora - dt).total_seconds() <= 120
+        except Exception:
+            return False
+
+    online = sum(
+        1 for _, loc in dados_frota
+        if loc and esta_online(loc[4])
     )
 
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric("🚗 Total de veículos", total)
-    col2.metric("📍 Com localização", localizados)
-    col3.metric("📡 Sem localização", total - localizados)
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("🚗 Veículos", total)
+    col2.metric("🟢 Online", online)
+    col3.metric("📍 Localizados", localizados)
+    col4.metric("🔴 Sem sinal", total - online)
 
     if veiculos:
 
+        st.markdown("### 🚛 Velocidade dos veículos")
+
+        velocidades = [
+            {
+                "Veículo": veiculo[1],
+                "Placa": veiculo[2],
+                "Velocidade": float(loc[2] or 0),
+                "Atualização": loc[4]
+            }
+            for veiculo, loc in dados_frota
+            if loc
+        ]
+
+        if velocidades:
+            cols = st.columns(min(4, len(velocidades)))
+
+            for i, item in enumerate(velocidades):
+                with cols[i % len(cols)]:
+                    status = (
+                        "🟢"
+                        if esta_online(item["Atualização"])
+                        else "🔴"
+                    )
+                    st.metric(
+                        f"{status} {item['Veículo']}",
+                        f"{item['Velocidade']:.1f} km/h",
+                        item["Placa"]
+                    )
+
+        st.markdown("### 🗺️ Localização da frota")
+
         mapa = folium.Map(
             location=[-15.7801, -47.9292],
-            zoom_start=4
+            zoom_start=5
         )
 
         encontrou_localizacao = False
+        coordenadas = []
 
-        for veiculo in veiculos:
-
-            localizacao = ultima_localizacao(veiculo[0])
+        for veiculo, localizacao in dados_frota:
 
             if localizacao:
-
                 encontrou_localizacao = True
 
                 latitude, longitude, velocidade, bateria, data_hora = localizacao
 
-                bateria_texto = (
-                    f"{bateria}%" if bateria is not None else "Não informada"
+                latitude = float(latitude)
+                longitude = float(longitude)
+                velocidade = float(velocidade or 0)
+
+                coordenadas.append([latitude, longitude])
+
+                online_veiculo = esta_online(data_hora)
+                status_texto = (
+                    "🟢 ONLINE"
+                    if online_veiculo
+                    else "🔴 SEM SINAL"
                 )
 
-                popup = f"""
-                <b>{veiculo[1]}</b><br>
-                Placa: {veiculo[2]}<br>
-                Velocidade: {velocidade} km/h<br>
-                Bateria: {bateria_texto}<br>
-                Atualização: {data_hora}
-                """
+                bateria_texto = (
+                    f"{bateria}%"
+                    if bateria is not None
+                    else "Não informada"
+                )
+
+                popup = (
+                    f"<b>🚛 {veiculo[1]}</b><br>"
+                    f"Placa: {veiculo[2]}<br>"
+                    f"Status: <b>{status_texto}</b><br>"
+                    f"🚗 Velocidade: <b>{velocidade:.1f} km/h</b><br>"
+                    f"🔋 Bateria: {bateria_texto}<br>"
+                    f"🕐 Atualização: {data_hora}"
+                )
+
+                folium.CircleMarker(
+                    location=[latitude, longitude],
+                    radius=10,
+                    popup=folium.Popup(popup, max_width=300),
+                    tooltip=f"{veiculo[1]} — {velocidade:.1f} km/h",
+                    fill=True
+                ).add_to(mapa)
+
+                etiqueta = (
+                    '<div style="'
+                    'background:white;'
+                    'border:2px solid #333;'
+                    'border-radius:8px;'
+                    'padding:3px 6px;'
+                    'font-size:12px;'
+                    'font-weight:bold;'
+                    'white-space:nowrap;'
+                    'box-shadow:0 1px 4px rgba(0,0,0,.35);'
+                    '">'
+                    f'🚛 {velocidade:.1f} km/h'
+                    '</div>'
+                )
 
                 folium.Marker(
                     location=[latitude, longitude],
-                    popup=popup,
-                    tooltip=veiculo[1]
+                    icon=folium.DivIcon(html=etiqueta)
                 ).add_to(mapa)
 
         if encontrou_localizacao:
+
+            if len(coordenadas) == 1:
+                mapa.location = coordenadas[0]
+                mapa.options["zoom"] = 14
+            else:
+                mapa.fit_bounds(coordenadas)
 
             st_folium(
                 mapa,
@@ -111,11 +204,9 @@ if pagina == "📊 Dashboard":
             )
 
         else:
-
             st.info("Nenhuma localização registrada ainda.")
 
     else:
-
         st.info("Nenhum veículo cadastrado ainda.")
 
 
