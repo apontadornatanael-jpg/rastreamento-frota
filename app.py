@@ -13,7 +13,6 @@ from database import (
     cadastrar_veiculo,
     listar_veiculos,
     salvar_localizacao,
-    salvar_localizacao_gps,
     ultima_localizacao
 )
 
@@ -302,7 +301,7 @@ elif pagina == "📍 Atualizar Localização":
 
                     if st.button("📍 Salvar minha localização", type="primary"):
                         try:
-                            salvar_localizacao_gps(
+                            salvar_localizacao(
                                 veiculo_id,
                                 lat,
                                 lon,
