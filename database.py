@@ -88,6 +88,17 @@ def salvar_localizacao(
     )
 
 
+def salvar_localizacao_gps(veiculo_id, latitude, longitude, velocidade=0, bateria=None):
+    """Salva uma posição obtida diretamente pelo GPS do aparelho."""
+    return salvar_localizacao(
+        veiculo_id=veiculo_id,
+        latitude=latitude,
+        longitude=longitude,
+        velocidade=velocidade,
+        bateria=bateria
+    )
+
+
 def ultima_localizacao(veiculo_id):
     supabase = get_supabase()
 
