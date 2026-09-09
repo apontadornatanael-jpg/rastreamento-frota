@@ -215,185 +215,200 @@ elif pagina == "🚗 Veículos":
 
 
 # =========================================================
-# LOCALIZAÇÃO / RASTREAMENTO AUTOMÁTICO
+# RASTREAMENTO AUTOMÁTICO
 # =========================================================
 
 elif pagina == "📍 Atualizar Localização":
 
-    st.subheader("📡 Rastreamento automático")
-    st.caption(
-        "O celular/tablet captura a localização pelo GPS do navegador "
-        "e envia automaticamente para o Supabase enquanto esta página "
-        "estiver aberta."
-    )
+    st.subheader("📡 Rastreamento")
 
     veiculos = listar_veiculos()
 
     if not veiculos:
         st.warning("Cadastre um veículo primeiro.")
     else:
+        # Mantém a seleção do veículo apenas na primeira utilização.
         opcoes = {f"{v[1]} - {v[2]}": v[0] for v in veiculos}
 
+        if "veiculo_rastreamento_id" not in st.session_state:
+            st.session_state["veiculo_rastreamento_id"] = veiculos[0][0]
+
+        nomes_ids = list(opcoes.items())
+        nome_atual = next(
+            (
+                nome
+                for nome, vid in nomes_ids
+                if vid == st.session_state["veiculo_rastreamento_id"]
+            ),
+            nomes_ids[0][0]
+        )
+
         veiculo_nome = st.selectbox(
-            "Selecione o veículo",
-            list(opcoes.keys())
+            "Veículo",
+            list(opcoes.keys()),
+            index=list(opcoes.keys()).index(nome_atual)
         )
         veiculo_id = opcoes[veiculo_nome]
+        st.session_state["veiculo_rastreamento_id"] = veiculo_id
 
-        st.markdown("### ⚙️ Rastreamento")
+        # Um único botão para iniciar/parar.
+        rastreando = st.session_state.get("rastreando", False)
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            intervalo = st.number_input(
-                "Intervalo de atualização (segundos)",
-                min_value=5,
-                max_value=300,
-                value=15,
-                step=5
+        if not rastreando:
+            st.markdown("### 🚛 Pronto para rastrear")
+            st.caption(
+                "Toque no botão abaixo e permita o acesso à localização "
+                "quando o navegador solicitar."
             )
 
-        with col2:
-            velocidade = st.number_input(
-                "Velocidade (km/h)",
-                min_value=0.0,
-                value=0.0,
-                step=1.0
-            )
-
-        bateria = st.number_input(
-            "Bateria (%) — opcional",
-            min_value=0.0,
-            max_value=100.0,
-            value=100.0,
-            step=1.0
-        )
-
-        rastreando = st.toggle(
-            "🟢 Ativar rastreamento automático",
-            value=st.session_state.get("rastreando", False)
-        )
-        st.session_state["rastreando"] = rastreando
-
-        if streamlit_geolocation is None:
-            st.error(
-                "O componente de GPS não está instalado. "
-                "Adicione streamlit-geolocation ao requirements.txt."
-            )
-        elif rastreando:
-            st.info(
-                f"📡 Rastreamento ativo para **{veiculo_nome}**. "
-                f"Nova posição a cada **{intervalo} segundos**."
-            )
-
-            localizacao = streamlit_geolocation()
-
-            if isinstance(localizacao, dict) and localizacao.get("error"):
-                erro = localizacao.get("error") or {}
-                mensagem = (
-                    erro.get("message", "Não foi possível obter a localização.")
-                    if isinstance(erro, dict)
-                    else str(erro)
-                )
-                st.warning(f"⚠️ GPS: {mensagem}")
-
-            elif isinstance(localizacao, dict):
-                lat = localizacao.get("latitude")
-                lon = localizacao.get("longitude")
-                accuracy = localizacao.get("accuracy")
-
-                if lat is not None and lon is not None:
-                    lat = float(lat)
-                    lon = float(lon)
-                    accuracy = (
-                        float(accuracy)
-                        if accuracy is not None
-                        else None
-                    )
-
-                    st.success("📍 GPS capturado.")
-
-                    c1, c2, c3 = st.columns(3)
-                    c1.metric("Latitude", f"{lat:.7f}")
-                    c2.metric("Longitude", f"{lon:.7f}")
-                    c3.metric(
-                        "Precisão",
-                        f"±{accuracy:.1f} m"
-                        if accuracy is not None
-                        else "Não informada"
-                    )
-
-                    # Evita gravar a mesma posição repetidamente.
-                    ultima_enviada = st.session_state.get(
-                        "ultima_posicao_rastreamento"
-                    )
-
-                    posicao_atual = (
-                        veiculo_id,
-                        round(lat, 6),
-                        round(lon, 6)
-                    )
-
-                    if posicao_atual != ultima_enviada:
-                        try:
-                            salvar_localizacao(
-                                veiculo_id,
-                                lat,
-                                lon,
-                                velocidade,
-                                bateria
-                            )
-
-                            st.session_state[
-                                "ultima_posicao_rastreamento"
-                            ] = posicao_atual
-
-                            st.session_state[
-                                "ultima_atualizacao_rastreamento"
-                            ] = time.strftime("%d/%m/%Y %H:%M:%S")
-
-                            st.success(
-                                "✅ Posição enviada para o Supabase."
-                            )
-
-                        except Exception as erro:
-                            st.error(
-                                f"Erro ao enviar localização: {erro}"
-                            )
-
-                    ultima_atualizacao = st.session_state.get(
-                        "ultima_atualizacao_rastreamento"
-                    )
-
-                    if ultima_atualizacao:
-                        st.caption(
-                            f"Último envio: {ultima_atualizacao}"
-                        )
-
-                    st.link_button(
-                        "🌎 Conferir posição no Google Maps",
-                        f"https://www.google.com/maps?q={lat:.7f},{lon:.7f}"
-                    )
-
-                    # Faz o Streamlit executar novamente depois do intervalo.
-                    time.sleep(int(intervalo))
-                    st.rerun()
-
-                else:
-                    st.warning(
-                        "Aguardando coordenadas do GPS. "
-                        "Verifique se a localização está ativada "
-                        "e permita o acesso no navegador."
-                    )
-            else:
-                st.info(
-                    "Aguardando a localização do aparelho. "
-                    "Permita o acesso ao GPS no navegador."
-                )
+            if st.button(
+                "📍 ATIVAR RASTREAMENTO",
+                type="primary",
+                use_container_width=True
+            ):
+                st.session_state["rastreando"] = True
+                st.session_state["ultima_posicao_rastreamento"] = None
+                st.rerun()
 
         else:
-            st.warning(
-                "⏸️ Rastreamento desativado. "
-                "Ative o rastreamento acima para começar."
-            )
+            st.success(f"🟢 Rastreamento ativo — {veiculo_nome}")
 
+            if st.button(
+                "⏹️ PARAR RASTREAMENTO",
+                use_container_width=True
+            ):
+                st.session_state["rastreando"] = False
+                st.rerun()
+
+            if streamlit_geolocation is None:
+                st.error(
+                    "O componente de GPS não está instalado. "
+                    "Adicione streamlit-geolocation ao requirements.txt."
+                )
+            else:
+                localizacao = streamlit_geolocation()
+
+                if isinstance(localizacao, dict) and localizacao.get("error"):
+                    erro = localizacao.get("error") or {}
+                    mensagem = (
+                        erro.get(
+                            "message",
+                            "Não foi possível obter a localização."
+                        )
+                        if isinstance(erro, dict)
+                        else str(erro)
+                    )
+                    st.warning(f"⚠️ GPS: {mensagem}")
+
+                elif isinstance(localizacao, dict):
+                    lat = localizacao.get("latitude")
+                    lon = localizacao.get("longitude")
+                    accuracy = localizacao.get("accuracy")
+
+                    # O navegador/GPS pode fornecer a velocidade em m/s.
+                    velocidade_ms = localizacao.get("speed")
+
+                    if lat is not None and lon is not None:
+                        lat = float(lat)
+                        lon = float(lon)
+                        accuracy = (
+                            float(accuracy)
+                            if accuracy is not None
+                            else None
+                        )
+
+                        if velocidade_ms is not None:
+                            try:
+                                velocidade = max(
+                                    0.0,
+                                    float(velocidade_ms) * 3.6
+                                )
+                            except (TypeError, ValueError):
+                                velocidade = 0.0
+                        else:
+                            velocidade = 0.0
+
+                        c1, c2 = st.columns(2)
+                        c1.metric("🚗 Velocidade", f"{velocidade:.1f} km/h")
+                        c2.metric(
+                            "🎯 Precisão",
+                            (
+                                f"±{accuracy:.1f} m"
+                                if accuracy is not None
+                                else "Não informada"
+                            )
+                        )
+
+                        st.caption(
+                            f"📍 {lat:.6f}, {lon:.6f}"
+                        )
+
+                        # Só envia novamente se a posição mudou.
+                        posicao_atual = (
+                            veiculo_id,
+                            round(lat, 6),
+                            round(lon, 6)
+                        )
+
+                        ultima_enviada = st.session_state.get(
+                            "ultima_posicao_rastreamento"
+                        )
+
+                        if posicao_atual != ultima_enviada:
+                            try:
+                                salvar_localizacao(
+                                    veiculo_id,
+                                    lat,
+                                    lon,
+                                    velocidade,
+                                    None
+                                )
+
+                                st.session_state[
+                                    "ultima_posicao_rastreamento"
+                                ] = posicao_atual
+
+                                st.session_state[
+                                    "ultima_atualizacao_rastreamento"
+                                ] = time.strftime(
+                                    "%d/%m/%Y %H:%M:%S"
+                                )
+
+                                st.toast(
+                                    "📡 Localização atualizada!",
+                                    icon="📍"
+                                )
+
+                            except Exception as erro:
+                                st.error(
+                                    f"Erro ao enviar localização: {erro}"
+                                )
+
+                        ultima_atualizacao = st.session_state.get(
+                            "ultima_atualizacao_rastreamento"
+                        )
+
+                        if ultima_atualizacao:
+                            st.caption(
+                                f"Último envio: {ultima_atualizacao}"
+                            )
+
+                        if accuracy is not None and accuracy > 50:
+                            st.warning(
+                                f"⚠️ Precisão do GPS: aproximadamente "
+                                f"±{accuracy:.1f} m."
+                            )
+
+                        # Atualização automática.
+                        time.sleep(15)
+                        st.rerun()
+
+                    else:
+                        st.info(
+                            "📡 Aguardando sinal do GPS..."
+                        )
+
+                else:
+                    st.info(
+                        "📡 Aguardando sinal do GPS..."
+                    )
