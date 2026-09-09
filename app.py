@@ -3,11 +3,17 @@ import pandas as pd
 import folium
 from streamlit_folium import st_folium
 
+try:
+    from streamlit_geolocation import streamlit_geolocation
+except ImportError:
+    streamlit_geolocation = None
+
 from database import (
     criar_tabelas,
     cadastrar_veiculo,
     listar_veiculos,
     salvar_localizacao,
+    salvar_localizacao_gps,
     ultima_localizacao
 )
 
@@ -214,84 +220,113 @@ elif pagina == "🚗 Veículos":
 
 elif pagina == "📍 Atualizar Localização":
 
-    st.subheader(
-        "📍 Atualização de localização"
+    st.subheader("📍 Localização automática do aparelho")
+    st.caption(
+        "O sistema solicita a localização GPS do celular/tablet. "
+        "Permita o acesso à localização quando o navegador solicitar."
     )
 
     veiculos = listar_veiculos()
 
     if not veiculos:
-
-        st.warning(
-            "Cadastre um veículo primeiro."
-        )
-
+        st.warning("Cadastre um veículo primeiro.")
     else:
-
-        opcoes = {
-            f"{v[1]} - {v[2]}": v[0]
-            for v in veiculos
-        }
+        opcoes = {f"{v[1]} - {v[2]}": v[0] for v in veiculos}
 
         veiculo_nome = st.selectbox(
             "Selecione o veículo",
             list(opcoes.keys())
         )
+        veiculo_id = opcoes[veiculo_nome]
 
-        veiculo_id = opcoes[
-            veiculo_nome
-        ]
-
-
-        with st.form(
-            "atualizar_localizacao"
-        ):
-
-            latitude = st.number_input(
-                "Latitude",
-                value=-15.7801,
-                format="%.6f"
+        if streamlit_geolocation is None:
+            st.error(
+                "O componente de GPS não está instalado. "
+                "Adicione streamlit-geolocation ao requirements.txt e faça novo deploy."
+            )
+        else:
+            st.markdown("### 📡 GPS do dispositivo")
+            localizacao = streamlit_geolocation(
+                key="gps_rastreamento_frota"
             )
 
-            longitude = st.number_input(
-                "Longitude",
-                value=-47.9292,
-                format="%.6f"
-            )
+            if isinstance(localizacao, dict) and localizacao.get("error"):
+                erro = localizacao.get("error") or {}
+                mensagem = (
+                    erro.get("message", "Não foi possível obter a localização.")
+                    if isinstance(erro, dict)
+                    else str(erro)
+                )
+                st.warning(f"⚠️ GPS: {mensagem}")
 
-            velocidade = st.number_input(
-                "Velocidade (km/h)",
-                min_value=0.0,
-                value=0.0
-            )
+            elif isinstance(localizacao, dict):
+                lat = localizacao.get("latitude")
+                lon = localizacao.get("longitude")
+                accuracy = localizacao.get("accuracy")
 
-            bateria = st.number_input(
-                "Bateria (%)",
-                min_value=0.0,
-                max_value=100.0,
-                value=100.0
-            )
+                if lat is not None and lon is not None:
+                    lat = float(lat)
+                    lon = float(lon)
+                    accuracy = float(accuracy) if accuracy is not None else None
 
-            atualizar = st.form_submit_button(
-                "📍 Salvar localização"
-            )
+                    st.success("📍 Localização GPS capturada automaticamente!")
 
-            if atualizar:
-
-                try:
-                    salvar_localizacao(
-                        veiculo_id,
-                        latitude,
-                        longitude,
-                        velocidade,
-                        bateria
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("Latitude", f"{lat:.7f}")
+                    c2.metric("Longitude", f"{lon:.7f}")
+                    c3.metric(
+                        "Precisão",
+                        f"±{accuracy:.1f} m" if accuracy is not None else "Não informada"
                     )
 
-                    st.success(
-                        "Localização atualizada no Supabase!"
+                    if accuracy is not None and accuracy > 50:
+                        st.warning(
+                            f"⚠️ A precisão atual é de aproximadamente ±{accuracy:.1f} m. "
+                            "Se possível, fique alguns segundos parado e tente novamente."
+                        )
+
+                    velocidade = st.number_input(
+                        "Velocidade (km/h)",
+                        min_value=0.0,
+                        value=0.0,
+                        step=1.0
                     )
 
-                except Exception as erro:
-                    st.error(
-                        f"Erro ao salvar localização: {erro}"
+                    bateria = st.number_input(
+                        "Bateria (%) — opcional",
+                        min_value=0.0,
+                        max_value=100.0,
+                        value=100.0,
+                        step=1.0
                     )
+
+                    if st.button("📍 Salvar minha localização", type="primary"):
+                        try:
+                            salvar_localizacao_gps(
+                                veiculo_id,
+                                lat,
+                                lon,
+                                velocidade,
+                                bateria
+                            )
+                            st.session_state["ultima_posicao_salva"] = (
+                                veiculo_id, lat, lon
+                            )
+                            st.success(
+                                f"✅ Localização do veículo {veiculo_nome} salva no Supabase!"
+                            )
+                            st.rerun()
+                        except Exception as erro:
+                            st.error(f"Erro ao salvar localização: {erro}")
+
+                    maps_url = f"https://www.google.com/maps?q={lat:.7f},{lon:.7f}"
+                    st.link_button("🌎 Conferir posição no Google Maps", maps_url)
+                else:
+                    st.info(
+                        "Aguardando o GPS do aparelho. Verifique se a localização está ativada."
+                    )
+            else:
+                st.info(
+                    "Aguardando a localização do aparelho. Permita o acesso ao GPS no navegador."
+                )
+
