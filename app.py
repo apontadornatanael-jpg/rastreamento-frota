@@ -245,9 +245,7 @@ elif pagina == "📍 Atualizar Localização":
             )
         else:
             st.markdown("### 📡 GPS do dispositivo")
-            localizacao = streamlit_geolocation(
-                key="gps_rastreamento_frota"
-            )
+            localizacao = streamlit_geolocation()
 
             if isinstance(localizacao, dict) and localizacao.get("error"):
                 erro = localizacao.get("error") or {}
